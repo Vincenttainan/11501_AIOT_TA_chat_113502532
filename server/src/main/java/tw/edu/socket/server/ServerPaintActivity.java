@@ -1,8 +1,12 @@
 package tw.edu.socket.server;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.os.Bundle;
-import android.text.TextUtils;
+import android.graphics.Color;
+import android.view.Gravity;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.util.List;
@@ -13,6 +17,8 @@ public class ServerPaintActivity extends Activity implements ServerSession.Liste
     private TextView serverStatus;
     private TextView serverAddress;
     private TextView serverClientCount;
+    private PaintCanvasView canvas;
+    private LinearLayout membersContainer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -27,14 +33,24 @@ public class ServerPaintActivity extends Activity implements ServerSession.Liste
         serverStatus = findViewById(R.id.paintServerStatus);
         serverAddress = findViewById(R.id.paintServerAddress);
         serverClientCount = findViewById(R.id.paintServerClientCount);
+        canvas = findViewById(R.id.paintServerCanvas);
+        membersContainer = findViewById(R.id.paintMembersContainer);
+        Button clearAll = findViewById(R.id.paintClearAllButton);
+        clearAll.setOnClickListener(view -> {
+            if (serverSession != null) serverSession.clearAllPaintStrokes();
+        });
 
         startServerSession();
     }
 
     private void startServerSession() {
-        if (serverSession != null) return;
+        if (serverSession != null) {
+            refreshAuthoritativeBoard();
+            return;
+        }
         serverSession = new ServerSession(serverName, ServerSession.MODE_PAINT, this);
         serverSession.start();
+        refreshAuthoritativeBoard();
     }
 
     @Override
@@ -63,14 +79,76 @@ public class ServerPaintActivity extends Activity implements ServerSession.Liste
 
     @Override
     public void onMembers(List<String> names) {
-        int clientCount = Math.max(0, names.size() - 1);
-        serverClientCount.setText("已連線 Client：" + clientCount
-                + (clientCount == 0 ? "" : "（" + TextUtils.join("、", names.subList(1, names.size())) + "）"));
+        serverClientCount.setText("在線使用者數：" + names.size());
+    }
+
+    @Override
+    public void onPaintMembers(List<PaintMember> members) {
+        membersContainer.removeAllViews();
+        for (PaintMember member : members) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            TextView identity = new TextView(this);
+            identity.setText(member.name + "｜" + member.ipAddress + "｜" + member.color);
+            identity.setTextColor(Color.BLACK);
+            identity.setTextSize(12);
+            identity.setPadding(6, 5, 6, 5);
+            LinearLayout.LayoutParams identityParams = new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            TextView colorSwatch = new TextView(this);
+            colorSwatch.setText("●");
+            colorSwatch.setTextColor(Color.parseColor(member.color));
+            colorSwatch.setTextSize(18);
+            row.addView(colorSwatch, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            row.addView(identity, identityParams);
+            Button clearUser = new Button(this);
+            clearUser.setText("Clear User");
+            clearUser.setTextSize(10);
+            clearUser.setPadding(4, 0, 4, 0);
+            clearUser.setOnClickListener(view -> {
+                if (serverSession != null) serverSession.clearUserPaintStrokes(member.clientId);
+            });
+            row.addView(clearUser, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            Button kick = new Button(this);
+            kick.setText("Kick");
+            kick.setTextSize(10);
+            kick.setPadding(4, 0, 4, 0);
+            kick.setOnClickListener(view -> new AlertDialog.Builder(this)
+                    .setTitle("踢出使用者")
+                    .setMessage("確定將 " + member.name + " 踢出聊天室並清除其筆跡嗎？")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("踢出", (dialog, which) -> {
+                        if (serverSession != null) serverSession.kickPaintClient(member.clientId);
+                    }).show());
+            row.addView(kick, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            membersContainer.addView(row);
+        }
+        serverClientCount.setText("在線使用者數：" + members.size());
     }
 
     @Override
     public void onChatMessage(String sender, String text) {
         // Paint Mode 不接受文字聊天訊息。
+    }
+
+    @Override
+    public void onStrokeAdded(PaintStroke stroke) {
+        refreshAuthoritativeBoard();
+    }
+
+    @Override
+    public void onStrokesRemoved(List<String> strokeIds, long revision) {
+        refreshAuthoritativeBoard();
+    }
+
+    private void refreshAuthoritativeBoard() {
+        if (serverSession != null && canvas != null) {
+            canvas.setBoard(serverSession.getPaintStrokesSnapshot());
+        }
     }
 
     @Override

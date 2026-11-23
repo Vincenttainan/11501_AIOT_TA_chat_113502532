@@ -11,6 +11,13 @@
     <TextView android:id="@+id/paintServerClientCount" android:layout_width="match_parent"
         android:layout_height="wrap_content" android:layout_marginTop="4dp"
         android:text="已連線 Client：0" android:textSize="14sp" />
+    <Button android:id="@+id/paintClearAllButton" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Clear All：清除整張畫布" />
+    <ScrollView android:layout_width="match_parent" android:layout_height="112dp"
+        android:fillViewport="true">
+        <LinearLayout android:id="@+id/paintMembersContainer" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:orientation="vertical" />
+    </ScrollView>
     <tw.edu.socket.server.PaintCanvasView android:id="@+id/paintServerCanvas"
         android:layout_width="match_parent" android:layout_height="0dp"
         android:layout_marginTop="12dp" android:layout_weight="1"

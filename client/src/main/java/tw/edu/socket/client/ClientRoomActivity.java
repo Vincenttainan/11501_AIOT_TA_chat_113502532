@@ -87,7 +87,7 @@ public class ClientRoomActivity extends Activity implements ClientSession.Listen
     }
 
     @Override
-    public void onWelcome(String mode, String clientId, String name) {
+    public void onWelcome(String mode, String clientId, String name, String color) {
         connectionStatus.setText("連線成功：" + name + "（" + mode + " Mode）");
         if (ClientSession.MODE_PAINT.equals(mode)) {
             if (paintActivityStarted || isFinishing()) return;
@@ -95,6 +95,7 @@ public class ClientRoomActivity extends Activity implements ClientSession.Listen
             Intent intent = new Intent(this, ClientPaintActivity.class);
             intent.putExtra(ClientPaintActivity.EXTRA_CLIENT_ID, clientId);
             intent.putExtra(ClientPaintActivity.EXTRA_CLIENT_NAME, name);
+            intent.putExtra(ClientPaintActivity.EXTRA_CLIENT_COLOR, color);
             startActivity(intent);
             return;
         }

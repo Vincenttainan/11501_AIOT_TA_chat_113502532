@@ -47,6 +47,9 @@ public final class ServerSession {
         void onLog(String message);
         void onMembers(List<String> names);
         void onChatMessage(String sender, String text);
+        default void onStrokeAdded(PaintStroke stroke) { }
+        default void onStrokesRemoved(List<String> strokeIds, long revision) { }
+        default void onPaintMembers(List<PaintMember> members) { }
     }
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -54,14 +57,18 @@ public final class ServerSession {
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final Set<ClientConnection> connections = ConcurrentHashMap.newKeySet();
     private final Map<String, ClientConnection> members = new LinkedHashMap<>();
+    private final List<PaintStroke> paintStrokes = new ArrayList<>();
+    private final String[] palette = {"#E53935", "#1E88E5", "#43A047", "#8E24AA", "#FB8C00", "#00897B", "#3949AB", "#F4511E", "#6D4C41", "#039BE5", "#7CB342", "#D81B60"};
     private final ExecutorService acceptExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService clientExecutor = Executors.newCachedThreadPool();
     private final ExecutorService broadcastExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService adminExecutor = Executors.newSingleThreadExecutor();
     private final String serverName;
     private final String mode;
     private volatile Listener listener;
     private volatile ServerSocket serverSocket;
     private int connectionCount;
+    private long boardRevision;
 
     public ServerSession(String serverName, String mode, Listener listener) {
         this.serverName = serverName == null || serverName.trim().isEmpty()
@@ -120,7 +127,7 @@ public final class ServerSession {
     private void monitorClient(ClientConnection client) {
         try {
             String line;
-            while (!closed.get() && (line = client.reader.readLine()) != null) {
+            while (!closed.get() && (line = readBoundedLine(client.reader, 64 * 1024)) != null) {
                 if (!handleClientMessage(client, line)) break;
             }
         } catch (IOException ignored) {
@@ -139,6 +146,10 @@ public final class ServerSession {
             }
             if ("leave".equals(type)) return false;
             if ("message".equals(type)) handleChatMessage(client, message.optString("text", "").trim());
+            if ("stroke_submit".equals(type)) handleStrokeSubmit(client, message);
+            if ("undo".equals(type)) handleUndo(client);
+            if ("erase".equals(type)) handleErase(client, message.optString("strokeId", ""));
+            if ("clear_mine".equals(type)) handleClearMine(client);
         } catch (JSONException ignored) {
             post(listener -> listener.onLog("收到格式錯誤的訊息，已忽略"));
         }
@@ -157,6 +168,7 @@ public final class ServerSession {
             } else {
                 client.memberName = name;
                 client.clientId = UUID.randomUUID().toString();
+                if (MODE_PAINT.equals(mode)) client.color = chooseColorLocked();
                 members.put(name, client);
                 JSONObject welcome = new JSONObject();
                 try {
@@ -164,7 +176,9 @@ public final class ServerSession {
                     welcome.put("mode", mode);
                     welcome.put("clientId", client.clientId);
                     welcome.put("name", name);
+                    if (MODE_PAINT.equals(mode)) welcome.put("color", client.color);
                     client.send(welcome.toString());
+                    if (MODE_PAINT.equals(mode)) sendBoardStateLocked(client);
                 } catch (JSONException | IOException exception) {
                     members.remove(name, client);
                     client.memberName = null;
@@ -173,11 +187,13 @@ public final class ServerSession {
                 }
 
                 List<String> names = snapshotMembersLocked();
+                List<PaintMember> paintMembers = snapshotPaintMembersLocked();
                 Set<ClientConnection> recipients = new HashSet<>(members.values());
                 enqueueSystemAndMembers(name + " 加入聊天室", names, recipients);
                 post(listener -> {
                     listener.onLog(name + " 加入聊天室");
                     listener.onMembers(names);
+                    listener.onPaintMembers(paintMembers);
                 });
             }
         }
@@ -217,6 +233,256 @@ public final class ServerSession {
         });
     }
 
+    private String chooseColorLocked() {
+        Set<String> used = new HashSet<>();
+        for (ClientConnection member : members.values()) if (member.color != null) used.add(member.color);
+        for (String color : palette) if (!used.contains(color)) return color;
+        // Keep colors distinct for larger rooms by cycling to a generated HSL hue.
+        int hue = (members.size() * 137) % 360;
+        return String.format(java.util.Locale.US, "#FF%02X%02X%02X",
+                (int)(128 + 127 * Math.cos(Math.toRadians(hue))),
+                (int)(128 + 127 * Math.cos(Math.toRadians(hue - 120))),
+                (int)(128 + 127 * Math.cos(Math.toRadians(hue - 240))));
+    }
+
+    private void sendBoardStateLocked(ClientConnection client) throws JSONException, IOException {
+        final int chunkSize=2;
+        int chunks=Math.max(1,(paintStrokes.size()+chunkSize-1)/chunkSize);
+        for(int chunk=0;chunk<chunks;chunk++) {
+            JSONObject state = new JSONObject(); state.put("type", "board_state");
+            state.put("revision", boardRevision); state.put("chunkIndex",chunk);
+            state.put("complete",chunk==chunks-1);
+            JSONArray strokes = new JSONArray();
+            int start=chunk*chunkSize, end=Math.min(paintStrokes.size(),start+chunkSize);
+            for(int i=start;i<end;i++) strokes.put(paintStrokes.get(i).toJson());
+            state.put("strokes", strokes);
+            client.send(state.toString());
+        }
+    }
+
+    private void handleStrokeSubmit(ClientConnection client, JSONObject request) {
+        if (!MODE_PAINT.equals(mode) || request.toString().length() > 64 * 1024) return;
+        String requestId = request.optString("requestId", "");
+        JSONArray rawPoints = request.optJSONArray("points");
+        double rawWidth = request.optDouble("width", Double.NaN);
+        if (requestId.isEmpty() || requestId.length() > 64 || rawPoints == null
+                || rawPoints.length() < 1 || rawPoints.length() > PaintStroke.MAX_POINTS
+                || !Double.isFinite(rawWidth) || rawWidth <= 0 || rawWidth > 0.2) return;
+        List<PaintStroke.Point> points = new ArrayList<>();
+        try {
+            for (int i=0; i<rawPoints.length(); i++) {
+                JSONObject point=rawPoints.getJSONObject(i);
+                double x=point.getDouble("x"), y=point.getDouble("y");
+                if (!Double.isFinite(x) || !Double.isFinite(y) || x<0 || x>1 || y<0 || y>1) return;
+                points.add(new PaintStroke.Point((float)x,(float)y));
+            }
+        } catch (JSONException exception) { return; }
+        PaintStroke accepted;
+        synchronized (membersLock) {
+            if (closed.get() || client.memberName == null || members.get(client.memberName) != client) return;
+            accepted = new PaintStroke(UUID.randomUUID().toString(), requestId, client.clientId,
+                    client.memberName, android.graphics.Color.parseColor(client.color), (float)rawWidth,
+                    ++boardRevision, points);
+            paintStrokes.add(accepted);
+            JSONObject event = new JSONObject();
+            try {
+                event.put("type", "stroke_added"); event.put("revision", boardRevision);
+                event.put("stroke", accepted.toJson());
+            } catch (JSONException impossible) { return; }
+            enqueueBroadcast(event.toString(), new HashSet<>(members.values()));
+            PaintStroke stroke = accepted;
+            post(listener -> listener.onStrokeAdded(stroke));
+        }
+    }
+
+    private void handleUndo(ClientConnection client) {
+        if (!MODE_PAINT.equals(mode)) return;
+        synchronized (membersLock) {
+            if (!isActiveMemberLocked(client)) return;
+            for (int i = paintStrokes.size() - 1; i >= 0; i--) {
+                PaintStroke stroke = paintStrokes.get(i);
+                if (client.clientId.equals(stroke.clientId)) {
+                    removeStrokeLocked(stroke);
+                    return;
+                }
+            }
+        }
+    }
+
+    private void handleErase(ClientConnection client, String strokeId) {
+        if (!MODE_PAINT.equals(mode) || strokeId.isEmpty()) return;
+        synchronized (membersLock) {
+            if (!isActiveMemberLocked(client)) return;
+            for (PaintStroke stroke : paintStrokes) {
+                if (stroke.strokeId.equals(strokeId) && client.clientId.equals(stroke.clientId)) {
+                    removeStrokeLocked(stroke);
+                    return;
+                }
+            }
+        }
+    }
+
+    private void handleClearMine(ClientConnection client) {
+        if (!MODE_PAINT.equals(mode)) return;
+        synchronized (membersLock) {
+            if (!isActiveMemberLocked(client)) return;
+            removeStrokesLocked(client.clientId, "mine", new HashSet<>(members.values()));
+        }
+    }
+
+    private boolean isActiveMemberLocked(ClientConnection client) {
+        return client.memberName != null && members.get(client.memberName) == client;
+    }
+
+    private void removeStrokeLocked(PaintStroke stroke) {
+        if (!paintStrokes.remove(stroke)) return;
+        long revision = ++boardRevision;
+        JSONObject event = new JSONObject();
+        try {
+            event.put("type", "stroke_removed"); event.put("revision", revision);
+            event.put("strokeId", stroke.strokeId); event.put("ownerId", stroke.clientId);
+        } catch (JSONException ignored) { return; }
+        enqueueBroadcast(event.toString(), new HashSet<>(members.values()));
+        post(listener -> listener.onStrokesRemoved(Collections.singletonList(stroke.strokeId), revision));
+    }
+
+    private List<String> removeStrokesLocked(String ownerId, String scope,
+                                              Set<ClientConnection> recipients) {
+        List<String> removed = new ArrayList<>();
+        for (int i = paintStrokes.size() - 1; i >= 0; i--) {
+            PaintStroke stroke = paintStrokes.get(i);
+            if (ownerId == null || ownerId.equals(stroke.clientId)) {
+                removed.add(stroke.strokeId);
+                paintStrokes.remove(i);
+            }
+        }
+        if (removed.isEmpty()) return removed;
+        long revision = ++boardRevision;
+        broadcastRemovedStrokes(removed, ownerId, scope, revision, recipients);
+        return removed;
+    }
+
+    private void broadcastRemovedStrokes(List<String> strokeIds, String ownerId, String scope,
+                                         long revision, Set<ClientConnection> recipients) {
+        final int chunkSize = 500;
+        int chunks = Math.max(1, (strokeIds.size() + chunkSize - 1) / chunkSize);
+        List<String> lines = new ArrayList<>();
+        for (int chunk=0; chunk<chunks; chunk++) {
+            JSONObject event = new JSONObject();
+            try {
+                event.put("type", "strokes_removed"); event.put("revision", revision);
+                event.put("chunkIndex", chunk); event.put("complete", chunk == chunks - 1);
+                int start=chunk*chunkSize, end=Math.min(strokeIds.size(),start+chunkSize);
+                event.put("strokeIds", new JSONArray(strokeIds.subList(start,end)));
+                event.put("scope", scope);
+                if (ownerId != null) event.put("ownerId", ownerId);
+                lines.add(event.toString());
+            } catch (JSONException ignored) { return; }
+        }
+        enqueueBroadcastLines(lines, recipients);
+        List<String> snapshot = new ArrayList<>(strokeIds);
+        post(listener -> listener.onStrokesRemoved(snapshot, revision));
+    }
+
+    /** Server-only operation exposed to the Paint management screen. */
+    public void clearAllPaintStrokes() {
+        if (!MODE_PAINT.equals(mode) || closed.get()) return;
+        executeAdmin(() -> {
+            if (closed.get()) return;
+            synchronized (membersLock) {
+                removeStrokesLocked(null, "all", new HashSet<>(members.values()));
+            }
+        });
+    }
+
+    /** Server-only operation; the clientId comes from the server's member list. */
+    public void clearUserPaintStrokes(String clientId) {
+        if (!MODE_PAINT.equals(mode) || clientId == null || closed.get()) return;
+        executeAdmin(() -> {
+            if (closed.get()) return;
+            synchronized (membersLock) {
+                if (findMemberByIdLocked(clientId) == null) return;
+                removeStrokesLocked(clientId, "user", new HashSet<>(members.values()));
+            }
+        });
+    }
+
+    /** Removes a member and their strokes, then sends a final kicked notice before closing the socket. */
+    public void kickPaintClient(String clientId) {
+        if (!MODE_PAINT.equals(mode) || clientId == null || closed.get()) return;
+        executeAdmin(() -> kickPaintClientInternal(clientId));
+    }
+
+    private void kickPaintClientInternal(String clientId) {
+        if (closed.get()) return;
+        ClientConnection target;
+        String kickedName;
+        synchronized (membersLock) {
+            target = findMemberByIdLocked(clientId);
+            if (target == null) return;
+            kickedName = target.memberName;
+            members.remove(kickedName, target);
+            target.memberName = null;
+            target.intentionalRemoval = true;
+            removeStrokesLocked(clientId, "kick", new HashSet<>(members.values()));
+            List<String> names = snapshotMembersLocked();
+            enqueueSystemAndMembers(kickedName + " 已被 Server 踢出聊天室", names,
+                    new HashSet<>(members.values()));
+            List<PaintMember> paintMembers = snapshotPaintMembersLocked();
+            post(listener -> {
+                listener.onLog(kickedName + " 已被 Server 踢出聊天室");
+                listener.onMembers(names);
+                listener.onPaintMembers(paintMembers);
+            });
+            if (clientExecutor.isShutdown()) {
+                target.close(); connections.remove(target); return;
+            }
+            try {
+                clientExecutor.execute(() -> {
+                    JSONObject kicked = new JSONObject();
+                    try {
+                        kicked.put("type", "kicked");
+                        kicked.put("text", "你已被 Server 踢出聊天室");
+                        kicked.put("name", kickedName);
+                    } catch (JSONException ignored) { }
+                    try { target.send(kicked.toString()); } catch (IOException ignored) { }
+                    target.close();
+                    connections.remove(target);
+                });
+            } catch (RejectedExecutionException ignored) {
+                target.close(); connections.remove(target);
+            }
+        }
+    }
+
+    private void executeAdmin(Runnable operation) {
+        try { adminExecutor.execute(operation); }
+        catch (RejectedExecutionException ignored) { }
+    }
+
+    private ClientConnection findMemberByIdLocked(String clientId) {
+        for (ClientConnection member : members.values()) {
+            if (clientId.equals(member.clientId)) return member;
+        }
+        return null;
+    }
+
+    private String readBoundedLine(BufferedReader reader, int maxChars) throws IOException {
+        StringBuilder line = new StringBuilder();
+        boolean overLimit = false;
+        int value;
+        while ((value = reader.read()) != -1) {
+            if (value == '\n') break;
+            if (value != '\r') {
+                if (line.length() < maxChars) line.append((char)value);
+                else overLimit = true;
+            }
+        }
+        if (value == -1 && line.length() == 0 && !overLimit) return null;
+        if (overLimit) throw new IOException("訊息超過大小限制");
+        return line.toString();
+    }
+
     private void removeClient(ClientConnection client) {
         connections.remove(client);
         String name = null;
@@ -226,18 +492,21 @@ public final class ServerSession {
                 name = assignedName;
                 client.memberName = null;
                 if (!closed.get()) {
+                    removeStrokesLocked(client.clientId, "disconnect", new HashSet<>(members.values()));
                     List<String> names = snapshotMembersLocked();
+                    List<PaintMember> paintMembers = snapshotPaintMembersLocked();
                     enqueueSystemAndMembers(assignedName + " 已離開聊天室", names,
                             new HashSet<>(members.values()));
                     post(listener -> {
                         listener.onLog(assignedName + " 已離開聊天室");
                         listener.onMembers(names);
+                        listener.onPaintMembers(paintMembers);
                     });
                 }
             }
         }
         client.close();
-        if (name == null && !closed.get()) {
+        if (name == null && !client.intentionalRemoval && !closed.get()) {
             String address = client.socket.getInetAddress().getHostAddress();
             post(listener -> listener.onLog("未加入聊天室的 Client 已斷線：" + address));
         }
@@ -321,6 +590,21 @@ public final class ServerSession {
         return result;
     }
 
+    public List<PaintStroke> getPaintStrokesSnapshot() {
+        synchronized (membersLock) {
+            return new ArrayList<>(paintStrokes);
+        }
+    }
+
+    private List<PaintMember> snapshotPaintMembersLocked() {
+        List<PaintMember> result = new ArrayList<>();
+        for (ClientConnection client : members.values()) {
+            result.add(new PaintMember(client.clientId, client.memberName,
+                    client.socket.getInetAddress().getHostAddress(), client.color));
+        }
+        return result;
+    }
+
     private void post(ListenerAction action) {
         mainHandler.post(() -> {
             Listener current = listener;
@@ -354,6 +638,7 @@ public final class ServerSession {
         acceptExecutor.shutdownNow();
         clientExecutor.shutdownNow();
         broadcastExecutor.shutdownNow();
+        adminExecutor.shutdownNow();
         listener = null;
     }
 
@@ -384,6 +669,8 @@ public final class ServerSession {
         final BufferedWriter writer;
         volatile String memberName;
         volatile String clientId;
+        volatile String color;
+        volatile boolean intentionalRemoval;
         private volatile boolean closed;
 
         ClientConnection(Socket socket) throws IOException {

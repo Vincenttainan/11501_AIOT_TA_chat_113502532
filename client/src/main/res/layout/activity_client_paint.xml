@@ -8,6 +8,19 @@
         android:text="連線狀態：等待 Server 模式資訊…" android:textSize="16sp" />
     <TextView android:id="@+id/paintClientIdentity" android:layout_width="match_parent"
         android:layout_height="wrap_content" android:text="使用者：Client" android:textSize="14sp" />
+    <TextView android:id="@+id/paintClientMembers" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="在線成員：載入中…" android:textSize="13sp" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:layout_marginTop="6dp">
+        <Button android:id="@+id/paintUndoButton" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:layout_weight="1" android:text="Undo" />
+        <Button android:id="@+id/paintEraserButton" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:layout_weight="1" android:text="橡皮擦：關" />
+        <Button android:id="@+id/paintClearMineButton" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:layout_weight="1" android:text="Clear Mine" />
+    </LinearLayout>
+    <TextView android:id="@+id/paintClientNotices" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:maxLines="3" android:text="" android:textSize="12sp" />
     <tw.edu.socket.client.PaintCanvasView android:id="@+id/paintClientCanvas"
         android:layout_width="match_parent" android:layout_height="0dp"
         android:layout_marginTop="12dp" android:layout_weight="1"

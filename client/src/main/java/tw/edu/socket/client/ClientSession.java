@@ -26,13 +26,13 @@ public final class ClientSession {
     public static final String MODE_PAINT = "paint";
 
     public interface Listener {
-        void onWelcome(String mode, String clientId, String name);
+        void onWelcome(String mode, String clientId, String name, String color);
         void onEvent(JSONObject event);
         void onConnectionFailed(String reason);
         void onDisconnected(String reason);
     }
 
-    private static final int MAX_BUFFERED_EVENTS = 500;
+    private static final int MAX_BUFFERED_EVENTS = 5000;
     private final Object stateLock = new Object();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService networkExecutor = Executors.newCachedThreadPool();
@@ -48,6 +48,7 @@ public final class ClientSession {
     private volatile String mode;
     private volatile String clientId;
     private volatile String clientName;
+    private volatile String assignedColor;
     private volatile String lastDisconnectReason;
     private boolean awaitingPaintActivity;
     private boolean welcomeNotified;
@@ -59,6 +60,7 @@ public final class ClientSession {
         String currentMode;
         String currentId;
         String currentName;
+        String currentColor;
         String disconnectedReason;
         synchronized (stateLock) {
             this.listener = listener;
@@ -72,11 +74,12 @@ public final class ClientSession {
             currentMode = mode;
             currentId = clientId;
             currentName = clientName;
+            currentColor = assignedColor;
             disconnectedReason = lastDisconnectReason;
         }
 
         if (listener == null) return;
-        if (replayWelcome) deliverWelcome(listener, currentMode, currentId, currentName);
+        if (replayWelcome) deliverWelcome(listener, currentMode, currentId, currentName, currentColor);
         for (JSONObject event : buffered) deliverEvent(listener, event);
         if (!connected && !closing && disconnectedReason != null) listener.onDisconnected(disconnectedReason);
     }
@@ -110,6 +113,7 @@ public final class ClientSession {
             lastDisconnectReason = null;
             mode = null;
             clientId = null;
+            assignedColor = null;
             clientName = name;
             attempt = ++generation;
         }
@@ -171,11 +175,13 @@ public final class ClientSession {
                 if (!MODE_PAINT.equals(assignedMode)) assignedMode = MODE_TEXT;
                 String assignedId = event.optString("clientId", "");
                 String assignedName = event.optString("name", clientName);
+                String color = event.optString("color", "#FF000000");
                 synchronized (stateLock) {
                     if (attempt != generation) return;
                     mode = assignedMode;
                     clientId = assignedId;
                     clientName = assignedName;
+                    assignedColor = color;
                     connecting = false;
                     connected = true;
                     awaitingPaintActivity = MODE_PAINT.equals(assignedMode);
@@ -185,6 +191,8 @@ public final class ClientSession {
                 dispatchEvent(attempt, event);
                 if ("error".equals(event.optString("type"))) {
                     lastDisconnectReason = event.optString("text", "連線遭拒");
+                } else if ("kicked".equals(event.optString("type"))) {
+                    lastDisconnectReason = event.optString("text", "你已被 Server 踢出聊天室");
                 }
             }
         } catch (JSONException ignored) {
@@ -204,6 +212,7 @@ public final class ClientSession {
         String currentMode;
         String currentId;
         String currentName;
+        String currentColor;
         synchronized (stateLock) {
             if (attempt != generation || !connected || welcomeNotified) return;
             current = listener;
@@ -212,16 +221,17 @@ public final class ClientSession {
             currentMode = mode;
             currentId = clientId;
             currentName = clientName;
+            currentColor = assignedColor;
         }
-        current.onWelcome(currentMode, currentId, currentName);
+        current.onWelcome(currentMode, currentId, currentName, currentColor);
     }
 
-    private void deliverWelcome(Listener target, String currentMode, String currentId, String currentName) {
+    private void deliverWelcome(Listener target, String currentMode, String currentId, String currentName, String currentColor) {
         synchronized (stateLock) {
             if (target != listener || !connected || welcomeNotified) return;
             welcomeNotified = true;
         }
-        target.onWelcome(currentMode, currentId, currentName);
+        target.onWelcome(currentMode, currentId, currentName, currentColor);
     }
 
     private void dispatchEvent(long attempt, JSONObject event) {
