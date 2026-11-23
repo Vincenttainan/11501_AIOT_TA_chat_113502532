@@ -6,6 +6,7 @@
         android:label="聊天室 Server"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
+        <activity android:name=".ServerPaintActivity" android:exported="false" />
         <activity android:name=".ServerRoomActivity" android:exported="false" />
         <activity android:name=".ServerSetupActivity" android:exported="true">
             <intent-filter>

@@ -1,0 +1,15 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="20dp">
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Online Paint" android:textSize="24sp" android:textStyle="bold" />
+    <TextView android:id="@+id/paintClientStatus" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:layout_marginTop="8dp"
+        android:text="連線狀態：等待 Server 模式資訊…" android:textSize="16sp" />
+    <TextView android:id="@+id/paintClientIdentity" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="使用者：Client" android:textSize="14sp" />
+    <tw.edu.socket.client.PaintCanvasView android:id="@+id/paintClientCanvas"
+        android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_marginTop="12dp" android:layout_weight="1"
+        android:background="#FFFFFF" />
+</LinearLayout>

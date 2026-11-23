@@ -1,0 +1,18 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="20dp">
+    <TextView android:id="@+id/paintServerTitle" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Paint Server" android:textSize="24sp" android:textStyle="bold" />
+    <TextView android:id="@+id/paintServerStatus" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:layout_marginTop="8dp"
+        android:text="連線狀態：啟動中…" android:textSize="16sp" />
+    <TextView android:id="@+id/paintServerAddress" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="本機 IP：取得中…　Port：5000" android:textSize="16sp" />
+    <TextView android:id="@+id/paintServerClientCount" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:layout_marginTop="4dp"
+        android:text="已連線 Client：0" android:textSize="14sp" />
+    <tw.edu.socket.server.PaintCanvasView android:id="@+id/paintServerCanvas"
+        android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_marginTop="12dp" android:layout_weight="1"
+        android:background="#FFFFFF" />
+</LinearLayout>
