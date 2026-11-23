@@ -1,109 +1,139 @@
-# Android Socket 多人聊天室
+# Android Socket Chatroom & Online Paint
 
-以 Java、Android 原生 API、XML Layout 與 TCP Socket 製作的課程專案，分為兩個可獨立執行的 Android App：Server 和 Client。
+**Repository：** `11501_AIOT_TA_chat_113502532`<br>
+**專案名稱：** Android Socket Chatroom & Online Paint
 
-## 目前功能
+## 1. 專案簡介
 
-- Server 可設定聊天室名稱、啟動 TCP 監聽，並顯示本機 IP 與 Port `5000`。
-- 多個 Client 可同時連線，輸入名稱、Server IP 和 Port。
-- Client 加入時以名稱註冊；Server 綁定名稱與該連線，聊天室訊息採用連線已註冊的名稱。
-- 名稱不分大小寫檢查重複；名稱重複或使用保留名稱 `Server` 時，Server 會拒絕該連線。
-- Server 和 Client 都能傳送聊天文字；訊息會廣播給所有在線 Client，包含原始發送者。
-- Server 和 Client 顯示在線成員；加入與離開時會收到系統通知及更新後的成員名單。
-- Client 按下「離開聊天室」會送出離開訊息後關閉 Socket。Client 強制結束或連線發生 EOF／I/O 錯誤時，Server 會清理成員並通知其他在線 Client。
-- Socket 使用 UTF-8、逐行 JSON；網路讀寫放在背景執行緒，畫面更新回到 Android 主執行緒。
+本專案以 Java、Android 原生 API、XML Layout 與 TCP Socket 製作，整合多人文字聊天室和 Online Paint 即時協作畫布。Server 啟動時選擇 **Text Mode** 或 **Paint Mode**；Client 連線後由 Server 告知本次工作階段的模式，Client 不自行選擇。
 
-Server 目前由管理畫面持有 Socket；離開或關閉 Server 管理畫面會停止監聽。專案未實作背景服務、登入驗證或加密傳輸。
+## 2. 專案架構
 
-## 使用技術
+專案包含兩個可分別執行的 Android App module：`server` 與 `client`。
 
-- Java 17 語言相容設定
-- Android Gradle Plugin 8.7.3、Gradle Wrapper 8.9
-- Android SDK `compileSdk 35`、`targetSdk 35`、`minSdk 23`
-- Android 原生 `ServerSocket`、`Socket`、`BufferedReader`、`BufferedWriter`
-- UTF-8、每行一筆 JSON 訊息
+| Module／類別 | 用途 |
+| --- | --- |
+| `server` | Android Socket Server App，監聽預設 Port `5000`。 |
+| `ServerSetupActivity` | 輸入 Server 名稱並選擇 Text Mode 或 Paint Mode。 |
+| `ServerRoomActivity` | 顯示文字聊天室成員與訊息，提供 Server 發訊息功能。 |
+| `ServerPaintActivity` | 顯示 Paint 畫布、成員名稱／IP／顏色，提供 Clear User、Kick 和 Clear All。 |
+| `ServerSession` | 管理 `ServerSocket`、Client 連線、UTF-8 JSON 收發、權威筆跡與廣播。 |
+| `PaintCanvasView`（Server） | 繪製 ServerSession 提供的權威筆跡快照。 |
+| `PaintStroke`、`PaintMember`（Server） | 表示筆跡資料與 Server 畫面上的成員資訊。 |
+| `client` | Android Socket Client App。 |
+| `ClientHomeActivity` | Client 入口畫面。 |
+| `ClientRoomActivity` | 輸入 Client 名稱、Server IP、Port；顯示或傳送 Text Mode 訊息。 |
+| `ClientPaintActivity` | 整合 Client Paint 畫布、Socket 事件、Undo、Eraser 與 Clear Mine。 |
+| `ClientSession` | 管理單一 Client Socket 的連線生命週期、背景收發與 Activity 間事件交接。 |
+| `PaintCanvasView`（Client） | 使用 Android Canvas 繪製筆跡，處理觸控與 Eraser 命中測試；不直接管理 Socket。 |
+| `PaintStroke`（Client） | 表示收到或暫存於畫布的筆跡資料。 |
 
-## 專案架構
+兩個 module 的畫面資源位於各自的 `src/main/res/layout/`，入口 Activity 與網路權限則定義於各自的 `AndroidManifest.xml`。
 
-```text
-.
-├── build.gradle                    # 共用 Gradle 外掛設定
-├── settings.gradle                 # 專案與 modules 設定
-├── server/                         # Server 獨立 Android App module
-│   └── src/main/
-│       ├── java/tw/edu/socket/server/
-│       │   ├── ServerSetupActivity.java
-│       │   └── ServerRoomActivity.java
-│       ├── res/layout/              # Server 設定與管理畫面 XML
-│       └── AndroidManifest.xml
-├── client/                         # Client 獨立 Android App module
-│   └── src/main/
-│       ├── java/tw/edu/socket/client/
-│       │   ├── ClientHomeActivity.java
-│       │   └── ClientRoomActivity.java
-│       ├── res/layout/              # Client 入口與聊天室 XML
-│       └── AndroidManifest.xml
-├── gradle/wrapper/                 # Gradle Wrapper 設定與啟動程式
-└── README.md
-```
+## 3. Text Mode 功能
 
-## 建置
+- 多位 Client 可同時連線。
+- Server 與 Client 都可傳送文字。
+- 每則 Client 訊息會廣播給所有在線 Client，包含原始發送者；Server 訊息也會廣播給所有 Client。
+- 訊息顯示發送者名稱。Server 以 join 時綁定的名稱識別該 Socket，不採信訊息中的名稱作為身分。
+- 顯示在線成員，以及加入和離開通知。
+- 保留原有文字聊天室的連線、雙向傳訊與多人廣播功能。
 
-安裝 Android Studio、Android SDK 35 與 JDK 17，並在 Android Studio 中將 Gradle JDK 設為 JDK 17。於專案根目錄執行：
+## 4. Paint Mode 功能
+
+### Server
+
+- 在啟動頁選擇 Paint Mode；Server 的模式固定於該工作階段。
+- 顯示多人同步畫布與連線狀態。
+- 為 Client 分配顏色，成員列顯示名稱、連線 IP 和顏色。
+- 提供 **Clear All**、每位使用者的 **Clear User** 與 **Kick**。
+- Client 正常離開、斷線或被踢出時，Server 會清理該使用者的筆跡並更新其他在線成員。
+- Server 關閉 Socket 後，Client 會收到斷線狀態並返回連線畫面。
+
+### Client
+
+- 輸入 Client 名稱、Server IP 和 Port；IP 欄位沒有寫死 `10.0.2.2`。
+- 連線後依 Server 指定的模式進入聊天室或 Paint 畫面。
+- 自由繪畫並與 Server、其他 Client 同步；筆跡採用 0～1 正規化座標，可在不同尺寸畫布重繪。
+- 提供 **Undo**（移除自己最後一筆仍存在的筆跡）、**Eraser**（點選自己的筆跡以整筆刪除）和 **Clear Mine**。
+- 顯示在線成員及加入、離開通知；被踢出時顯示提示並返回連線畫面。
+- 新 Client 加入時會接收目前畫布快照，再接收後續筆跡更新。
+
+刪除操作由 Server 驗證 Socket 身分與筆跡擁有者；Client 不會自行修改權威畫布。Client 的 Eraser 以觸控點到筆跡線段的距離判斷命中，並使用觸碰容忍範圍，無須精準碰在線條中心。
+
+## 5. Socket 通訊原理
+
+Server 使用 `ServerSocket` 監聽連線，每個 Client 使用 TCP `Socket`。資料採 **UTF-8、逐行 JSON** 傳送；網路讀寫在背景執行緒進行，Activity 的畫面更新回到 Android 主執行緒。
+
+Client 先送出 `join`。Server 回覆包含模式、Client ID 和 Paint 顏色的 `welcome`。Text Mode 訊息由 Server 廣播；Paint Mode 中 Client 送出 `stroke_submit`，Server 驗證資料後產生筆跡 ID 和 revision，並廣播 `stroke_added`。新 Client 以分段 `board_state` 載入既有筆跡；Server 透過 `stroke_removed`、`strokes_removed` 等事件同步刪除與清空結果。
+
+常見訊息類型包括：`join`、`welcome`、`message`、`members`、`system`、`stroke_submit`、`stroke_added`、`board_state`、`undo`、`erase`、`clear_mine`、`stroke_removed`、`strokes_removed` 和 `kicked`。筆跡身分、顏色、擁有者及畫布狀態由 Server 維護。
+
+## 6. 執行方式
+
+### 開發環境
+
+- Android Studio
+- JDK 17
+- Android SDK 35（`compileSdk`／`targetSdk` 35，`minSdk` 23）
+- 專案使用 Android Gradle Plugin 8.7.3 與 Gradle Wrapper 8.9
+
+在 Android Studio 開啟 Repository 根目錄並完成 Gradle Sync。選擇 `server` module 執行 Server App，選擇 `client` module 執行 Client App。Server 啟動時選擇模式；Client 在連線頁輸入名稱、Server IP 與 Port `5000`。
+
+也可於專案根目錄建置 Debug APK：
 
 ```bash
 ./gradlew :server:assembleDebug
 ./gradlew :client:assembleDebug
 ```
 
-Windows 可使用 `gradlew.bat`。Android Studio 也可分別選取 `server` 或 `client` module 執行。
+Windows 可使用 `gradlew.bat`。
 
-## 啟動與連線
+## 7. Android 模擬器連線教學
 
-### 一般網路或實體裝置
+Android Emulator 的 `10.0.2.2` 是 Client 模擬器連到開發主機的特殊位址。若 Server 和 Client 分別執行於不同模擬器，可將主機 Port 轉送至 Server 模擬器：
 
-1. 在一台裝置啟動 Server App，進入管理畫面並確認監聽狀態。
-2. 記下 Server 畫面上的本機 IP，Port 使用 `5000`。
-3. 在每台 Client 輸入 Client 名稱、Server IP 和 `5000`，再按 Connect。
-
-裝置需能透過同一網路互相連線；Client 的 IP 欄位沒有預設寫死位址。
-
-### Android 模擬器搭配 ADB Forward
-
-較舊版 Android Emulator 的模擬器之間通常彼此隔離，可將 Server 模擬器的 Port 轉送到開發主機，再由 Client 模擬器連到主機：
-
-1. 在 Server 模擬器啟動 Server App，確認 Server 正在監聽 Port `5000`。
-2. 在主機確認裝置序號：
+1. 在 Server 模擬器啟動 Server App，選擇模式並確認正在監聽 Port `5000`。
+2. 在開發主機查看已連接裝置：
 
    ```bash
    adb devices
    ```
 
-3. 將主機的 TCP `5000` 轉送到 Server 模擬器的 TCP `5000`（將序號替換成 Server 模擬器的實際序號）：
+3. 將主機的 TCP `5000` 轉送到 Server 模擬器的 TCP `5000`：
 
    ```bash
    adb -s emulator-5554 forward tcp:5000 tcp:5000
    ```
 
-4. 在每台 Client 模擬器輸入名稱、IP `10.0.2.2`、Port `5000`，再連線。`10.0.2.2` 是 Android Emulator 用來連到開發主機的特殊位址；Server IP 和 Port 仍可在 Client 畫面輸入。
-5. 兩台或更多 Client 可使用相同的轉送端點連到該 Server。若主機的 Port `5000` 已被占用，請選擇未使用的主機 Port，並讓 Client 輸入該主機 Port；Server App 仍監聽 `5000`，轉送命令例如 `adb -s emulator-5554 forward tcp:5001 tcp:5000`。
+   `emulator-5554` 只是範例，請替換成 `adb devices` 顯示的實際 Server 模擬器編號。
 
-確認轉送設定：
+4. 在每台 Client 模擬器輸入 Server IP `10.0.2.2` 與 Port `5000`，再連線。Client 名稱與 IP、Port 都可在畫面輸入。
+5. 多台 Client 可共用此轉送設定連到同一個 Server。
+
+檢查轉送設定：
 
 ```bash
 adb forward --list
 ```
 
-## 通訊訊息概念
+## 8. 功能測試結果
 
-每筆 JSON 以換行結尾。常見訊息類型包含：
+下表區分使用者先前回報的模擬器實測，以及近期修正後尚待再次確認的項目。此工作階段未重新操作模擬器。
 
-```json
-{"type":"join","name":"Alice"}
-{"type":"message","name":"Alice","text":"大家好"}
-{"type":"leave","name":"Alice"}
-{"type":"system","text":"Alice 加入聊天室"}
-{"type":"members","members":["Server","Alice"]}
-```
+| 功能 | 已知測試狀態 |
+| --- | --- |
+| Text Mode 多人聊天、訊息廣播 | 使用者回報實測正常。 |
+| Paint Mode 兩個 Client 連線、繪畫同步、顏色區分 | 使用者回報實測正常。 |
+| Undo、Clear Mine | 使用者回報 Client 畫布操作正常；Server 畫布同步修正後待重測。 |
+| Clear User、Clear All、Kick | 使用者回報 Client 畫布會更新；Server 畫布同步修正後待重測。 |
+| Eraser | 使用者曾回報無法刪除。程式已修正 Client 身分傳遞與命中判斷，修正後尚待實測。 |
+| Client 離開、異常斷線清理筆跡 | 程式有處理流程；目前沒有本工作階段重新實測的結果。 |
+| Server 關閉後 Client 返回連線畫面 | 使用者先前回報第一階段實測成功；Paint 刪除功能修正後未重新測試。 |
 
-Server 會以連線註冊時綁定的名稱標記聊天訊息；接收訊息中的 `name` 欄位不會覆蓋這個名稱。
+## 9. 已知限制
+
+- 目前沒有登入驗證、加密傳輸或背景 Server Service；Server Activity 停止時會關閉該 Session 與連線。
+- Paint 筆跡保存在 ServerSession 記憶體中，Server Session 結束後不會持久保存或還原。
+- 近期 Eraser 與 Server 畫布刪除同步修正尚未在模擬器重測，請以第 8 節狀態為準。
+- Undo、Eraser、Clear Mine、Clear User、Clear All 和 Kick 之外的畫布編輯工具（例如選取、移動、改色或匯出）尚未實作。
