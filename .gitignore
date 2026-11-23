@@ -1,0 +1,38 @@
+# Gradle caches and generated output
+.gradle/
+**/.gradle/
+**/build/
+**/out/
+
+# Gradle user-home artifacts accidentally stored at repository root
+/caches/
+/daemon/
+/native/
+/notifications/
+/wrapper/
+/.tmp/
+
+# Android Studio and IDE local state
+.idea/
+*.iml
+local.properties
+.vscode/
+
+# macOS and temporary files
+.DS_Store
+*.log
+*.tmp
+
+# Signing credentials and local secrets
+.env
+.env.*
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+keystore.properties
+signing.properties
+
+# Empty placeholder, not referenced by either app module
+/android/FakeDependency.jar

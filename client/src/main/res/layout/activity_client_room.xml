@@ -1,0 +1,32 @@
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="20dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="連線設定與聊天室" android:textSize="24sp" android:textStyle="bold" />
+        <EditText android:id="@+id/clientNameInput" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:hint="Client 名稱" android:inputType="textPersonName" />
+        <EditText android:id="@+id/serverIpInput" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:hint="Server IP（例如 192.168.1.10）" android:inputType="text" />
+        <EditText android:id="@+id/serverPortInput" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:hint="Port（預設 5000）" android:inputType="number" />
+        <Button android:id="@+id/connectButton" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="Connect" />
+        <TextView android:id="@+id/connectionStatus" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="尚未連線" android:textSize="16sp" />
+        <TextView android:id="@+id/clientMembers" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="4dp"
+            android:text="在線成員：尚未連線" android:textSize="14sp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="16dp" android:text="聊天訊息" android:textStyle="bold" />
+        <TextView android:id="@+id/clientMessages" android:layout_width="match_parent"
+            android:layout_height="180dp" android:background="#F1F3F6" android:gravity="top"
+            android:padding="12dp" android:text="目前沒有訊息" android:textSize="16sp" />
+        <EditText android:id="@+id/clientMessageInput" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:hint="輸入聊天訊息" android:inputType="text" />
+        <Button android:id="@+id/clientSendButton" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="傳送訊息" />
+        <Button android:id="@+id/leaveChatButton" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="離開聊天室" />
+    </LinearLayout>
+</ScrollView>

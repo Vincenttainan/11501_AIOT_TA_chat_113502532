@@ -1,0 +1,10 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:gravity="center" android:padding="24dp">
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="多人聊天室" android:textSize="28sp" android:textStyle="bold" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="12dp" android:gravity="center" android:text="Client 聊天室入口" android:textSize="18sp" />
+    <Button android:id="@+id/enterChatButton" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:layout_marginTop="28dp" android:text="前往聊天室設定" />
+</LinearLayout>
